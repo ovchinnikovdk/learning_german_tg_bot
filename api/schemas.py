@@ -86,3 +86,25 @@ class AddQuestionOut(BaseModel):
 class BackupOut(BaseModel):
     stats_backup: str
     questions_backup: str
+
+
+class ThemeOut(BaseModel):
+    id: str
+    name: str
+    description: str
+    grammar_rules: list[str] = []
+    examples: list[dict] = []
+    focus_categories: list[str] = []
+    started_at: str = ""
+    completed_at: str = ""
+
+
+class LearningPlanOut(BaseModel):
+    user_id: int
+    ai_summary: str = ""
+    recommended_progression: list[str] = []
+    weak_areas: list[str] = []
+    strengths: list[str] = []
+    generated_at: str = ""
+    themes_history: list[ThemeOut] = []
+    current_theme: ThemeOut | None = None

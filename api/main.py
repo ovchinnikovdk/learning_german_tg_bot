@@ -6,7 +6,7 @@ import logging
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
-from api.routers import backup, daily, learn, questions, stats
+from api.routers import backup, daily, learn, plan, questions, stats
 from shared.factory import build_engine
 
 logging.basicConfig(
@@ -31,6 +31,7 @@ app = FastAPI(
 app.include_router(daily.router)
 app.include_router(learn.router)
 app.include_router(stats.router)
+app.include_router(plan.router)
 app.include_router(questions.router)
 app.include_router(backup.router)
 

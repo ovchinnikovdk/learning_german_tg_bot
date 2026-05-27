@@ -24,6 +24,7 @@ from bot.handlers.learn import (
     learn_next_callback,
 )
 from bot.handlers.list_questions import build_edit_handler, list_browse_callback, list_command
+from bot.handlers.plan import plan_callback, plan_command
 from bot.handlers.stats import stats_command, stats_download_callback
 from bot.keyboards import main_menu_keyboard
 from config import settings
@@ -65,6 +66,8 @@ async def menu_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await query.message.reply_text("Use /add to add a new question.")
     elif route == "menu_list":
         await list_command(update, ctx)
+    elif route == "menu_plan":
+        await plan_command(update, ctx)
     elif route == "menu_generate":
         await generate_command(update, ctx)
     elif route == "menu_main":
@@ -82,7 +85,7 @@ async def daily_backup_job(ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def daily_routine_job(ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """9am daily: push questions to all users, then generate 5 AI candidates."""
+    """9am daily: push questions to all users, then generate AI candidates."""
     engine: LearningEngine = ctx.bot_data["engine"]
     users = engine.get_all_users()
 
@@ -94,13 +97,56 @@ async def daily_routine_job(ctx: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception as exc:
             logger.warning("Daily push failed for user %s: %s", user.user_id, exc)
 
-    # 2. Generate 5 AI question candidates (personalized to first user's stats)
-    ref_user_id = users[0].user_id if users else 0
-    try:
-        candidates = await engine.generate_candidates(ref_user_id)
-        logger.info("Daily AI generation: created %d candidate(s)", len(candidates))
-    except Exception as exc:
-        logger.warning("Daily AI generation failed: %s", exc)
+    # 2. Per-user AI decision + progress push
+    for user in users:
+        try:
+            result = await engine.generate_daily_decision(user.user_id)
+            decision = result.get("decision", "no_theme")
+            reason = result.get("reason", "")
+
+            if decision == "next_theme":
+                theme_name = result.get("theme", {}).get("name", "?")
+                logger.info(
+                    "Daily: user %s → next theme '%s' — %s",
+                    user.user_id, theme_name, reason,
+                )
+                notify = (
+                    f"🎓 <b>New Theme!</b>\n\n"
+                    f"Great progress — you're ready for a new topic:\n"
+                    f"<b>{theme_name}</b>\n\n"
+                    f"<i>{reason}</i>\n\n"
+                    f"20 new exercises added. Tap /plan to start practicing."
+                )
+                await ctx.bot.send_message(user.chat_id, notify, parse_mode="HTML")
+
+            elif decision == "continue":
+                n = result.get("new_question_count", 0)
+                plan = engine.get_learning_plan(user.user_id) or {}
+                theme_name = plan.get("current_theme", {}).get("name", "")
+                logger.info(
+                    "Daily: user %s → %d exercise(s) added to '%s' — %s",
+                    user.user_id, n, theme_name, reason,
+                )
+                if n:
+                    notify = (
+                        f"📝 <b>Theme Update</b>\n\n"
+                        f"{n} new exercise(s) added for: <b>{theme_name}</b>\n\n"
+                        f"<i>{reason}</i>\n\n"
+                        f"Tap /plan → Practice Exercises to continue."
+                    )
+                    await ctx.bot.send_message(user.chat_id, notify, parse_mode="HTML")
+
+            else:
+                # No active theme: fall back to 5 generic candidates (first user only)
+                if user.user_id == users[0].user_id:
+                    candidates = await engine.generate_candidates(user.user_id)
+                    logger.info(
+                        "Daily AI (no theme): %d candidate(s) for user %s",
+                        len(candidates), user.user_id,
+                    )
+
+        except Exception as exc:
+            logger.warning("Daily AI decision failed for user %s: %s", user.user_id, exc)
 
 
 def build_app() -> Application:
@@ -114,6 +160,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("daily",      daily_command))
     app.add_handler(CommandHandler("learn",      learn_command))
     app.add_handler(CommandHandler("stats",      stats_command))
+    app.add_handler(CommandHandler("plan",       plan_command))
     app.add_handler(CommandHandler("list",       list_command))
     app.add_handler(CommandHandler("generate",   generate_command))
     app.add_handler(CommandHandler("candidates", candidates_command))
@@ -136,6 +183,9 @@ def build_app() -> Application:
 
     # Stats download
     app.add_handler(CallbackQueryHandler(stats_download_callback, pattern=r"^stats_dl$"))
+
+    # Learning plan callbacks
+    app.add_handler(CallbackQueryHandler(plan_callback, pattern=r"^plan_"))
 
     # Text messages → fill-in-the-blank answers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, learn_fill_message))

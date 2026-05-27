@@ -7,6 +7,7 @@ Tables:
   users              — registered Telegram users for daily push
   daily_assignments  — per-user per-day question assignment
   question_candidates — LLM-generated question candidates awaiting review
+  learning_plans     — per-user AI-generated learning plan + theme history
 """
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ class Storage:
         self._users = self._db.table("users")
         self._daily_assignments = self._db.table("daily_assignments")
         self._candidates = self._db.table("question_candidates")
+        self._learning_plans = self._db.table("learning_plans")
 
     # ------------------------------------------------------------------
     # Answers
@@ -162,6 +164,22 @@ class Storage:
 
     def update_candidate(self, candidate_id: str, **kwargs) -> None:
         self._candidates.update(kwargs, _Q.id == candidate_id)
+
+    # ------------------------------------------------------------------
+    # Learning plans
+    # ------------------------------------------------------------------
+
+    def get_learning_plan(self, user_id: int) -> dict | None:
+        return self._learning_plans.get(_Q.user_id == user_id)
+
+    def save_learning_plan(self, user_id: int, plan: dict) -> None:
+        self._learning_plans.upsert({"user_id": user_id, **plan}, _Q.user_id == user_id)
+
+    def update_learning_plan(self, user_id: int, **kwargs) -> None:
+        if self._learning_plans.get(_Q.user_id == user_id):
+            self._learning_plans.update(kwargs, _Q.user_id == user_id)
+        else:
+            self._learning_plans.insert({"user_id": user_id, **kwargs})
 
     # ------------------------------------------------------------------
     # Backup

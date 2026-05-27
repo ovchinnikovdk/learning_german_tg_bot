@@ -14,11 +14,13 @@ from core.models import Question
 logger = logging.getLogger(__name__)
 
 LEARN_Q_KEY = "learn_question"
+THEME_IDS_KEY = "theme_practice_ids"
 
 
 async def learn_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     engine: LearningEngine = ctx.bot_data["engine"]
     user_id = update.effective_user.id
+    ctx.user_data.pop(THEME_IDS_KEY, None)  # exit theme mode on /learn
     q = engine.get_learn_question(user_id)
     ctx.user_data[LEARN_Q_KEY] = q.id
     await _send_question(update.effective_message, q, engine)
@@ -29,6 +31,18 @@ async def learn_next_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
     await query.answer()
     engine: LearningEngine = ctx.bot_data["engine"]
     user_id = update.effective_user.id
+
+    theme_ids = ctx.user_data.get(THEME_IDS_KEY)
+    if theme_ids:
+        q = engine.get_theme_learn_question(user_id, theme_ids)
+        if q:
+            ctx.user_data[LEARN_Q_KEY] = q.id
+            await _send_question(query.message, q, engine, mode_prefix="📚 <b>Theme Practice</b>\n\n")
+            return
+        # Theme pool exhausted — fall through to normal learn
+        ctx.user_data.pop(THEME_IDS_KEY, None)
+        await query.message.reply_text("✅ All theme exercises done! Continuing with general practice.")
+
     q = engine.get_learn_question(user_id)
     ctx.user_data[LEARN_Q_KEY] = q.id
     await _send_question(query.message, q, engine)
@@ -79,10 +93,14 @@ async def learn_fill_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
-async def _send_question(message, q: Question, engine: LearningEngine) -> None:
+async def _send_question(
+    message,
+    q: Question,
+    engine: LearningEngine,
+    mode_prefix: str = "🎓 <b>Learn Mode</b>\n\n",
+) -> None:
     logger.info("Sending question %s type=%s opts=%d", q.id, q.type, len(q.opts))
-    prefix = "🎓 <b>Learn Mode</b>\n\n"
-    header = question_header(q, mode_prefix=prefix)
+    header = question_header(q, mode_prefix=mode_prefix)
 
     if q.type == "reading" and q.passage_id:
         header = prefix + passage_block(engine.bank.get_passage(q.passage_id)) + \

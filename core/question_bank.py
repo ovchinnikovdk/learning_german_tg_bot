@@ -74,6 +74,33 @@ class QuestionBank:
     # Falls back to full bank if all questions have been answered correctly.
     # ------------------------------------------------------------------
 
+    def pick_from_ids(
+        self,
+        question_ids: list[str],
+        wrong_counts: dict[str, int],
+        answered_ids: set[str],
+        exclude_id: str | None = None,
+    ) -> Question | None:
+        """Pick a question from a specific set of IDs, weighted by wrong counts."""
+        available = [qid for qid in question_ids if qid in self._questions and qid != exclude_id]
+        if not available:
+            return None
+
+        pool_ids: list[str] = []
+        pool_weights: list[int] = []
+        for qid in available:
+            if qid in wrong_counts:
+                pool_ids.append(qid)
+                pool_weights.append(wrong_counts[qid] * 3)
+        for qid in available:
+            if qid not in answered_ids and qid != exclude_id:
+                pool_ids.append(qid)
+                pool_weights.append(1)
+
+        if pool_ids:
+            return self._questions[random.choices(pool_ids, weights=pool_weights, k=1)[0]]
+        return self._questions[random.choice(available)]
+
     def pick_for_learn(
         self,
         wrong_counts: dict[str, int],

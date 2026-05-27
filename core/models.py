@@ -63,3 +63,40 @@ class QuestionCandidate:
     status: str = "pending"   # pending, approved, rejected
     created_at: str = ""
     source: str = "llm"
+
+
+@dataclass
+class Theme:
+    id: str
+    name: str
+    description: str
+    grammar_rules: list[str] = field(default_factory=list)
+    examples: list[dict] = field(default_factory=list)   # [{"german": ..., "english": ...}]
+    focus_categories: list[str] = field(default_factory=list)
+    started_at: str = ""
+    completed_at: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "grammar_rules": self.grammar_rules,
+            "examples": self.examples,
+            "focus_categories": self.focus_categories,
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Theme":
+        return cls(
+            id=d.get("id", ""),
+            name=d.get("name", ""),
+            description=d.get("description", ""),
+            grammar_rules=d.get("grammar_rules", []),
+            examples=d.get("examples", []),
+            focus_categories=d.get("focus_categories", []),
+            started_at=d.get("started_at", ""),
+            completed_at=d.get("completed_at", ""),
+        )

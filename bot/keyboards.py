@@ -26,6 +26,7 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("📅 Daily question", callback_data="menu_daily")],
         [InlineKeyboardButton("🎓 Learn mode",     callback_data="menu_learn")],
         [InlineKeyboardButton("📊 My stats",        callback_data="menu_stats")],
+        [InlineKeyboardButton("🗺️ Learning Plan",   callback_data="menu_plan")],
         [InlineKeyboardButton("➕ Add question",    callback_data="menu_add")],
         [InlineKeyboardButton("📋 List questions",  callback_data="menu_list")],
         [InlineKeyboardButton("🤖 Generate (AI)",   callback_data="menu_generate")],
