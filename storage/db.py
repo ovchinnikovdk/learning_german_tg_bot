@@ -7,7 +7,7 @@ Tables:
   users              — registered Telegram users for daily push
   daily_assignments  — per-user per-day question assignment
   question_candidates — LLM-generated question candidates awaiting review
-  learning_plans     — per-user AI-generated learning plan + theme history
+  learning_plans     — per-user AI-generated learning plan + topic history
 """
 from __future__ import annotations
 

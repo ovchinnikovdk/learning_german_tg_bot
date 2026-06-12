@@ -12,13 +12,21 @@ PAGE_SIZE = 8
 # Core / shared
 # ------------------------------------------------------------------
 
-def mc_keyboard(question: Question, prefix: str = "ans") -> InlineKeyboardMarkup:
+def mc_keyboard(question: Question, prefix: str = "ans", question_id: str = "") -> InlineKeyboardMarkup:
     """One button per MC option. prefix distinguishes daily_N from learn_N callbacks."""
     buttons = [
         [InlineKeyboardButton(f"{chr(65+i)}. {opt}", callback_data=f"{prefix}_{i}")]
         for i, opt in enumerate(question.opts)
     ]
+    if question_id:
+        buttons.append([InlineKeyboardButton("✏️ Edit question", callback_data=f"ql_e_{question_id}")])
     return InlineKeyboardMarkup(buttons)
+
+
+def fill_question_keyboard(question_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✏️ Edit question", callback_data=f"ql_e_{question_id}")]
+    ])
 
 
 def main_menu_keyboard() -> InlineKeyboardMarkup:
@@ -59,11 +67,14 @@ def question_type_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def next_question_keyboard(callback: str = "learn_next") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
+def next_question_keyboard(callback: str = "learn_next", question_id: str = "") -> InlineKeyboardMarkup:
+    rows = [
         [InlineKeyboardButton("➡️ Next question", callback_data=callback)],
-        [InlineKeyboardButton("🏠 Main menu",     callback_data="menu_main")],
-    ])
+    ]
+    if question_id:
+        rows.append([InlineKeyboardButton("✏️ Edit question", callback_data=f"ql_e_{question_id}")])
+    rows.append([InlineKeyboardButton("🏠 Main menu", callback_data="menu_main")])
+    return InlineKeyboardMarkup(rows)
 
 
 # ------------------------------------------------------------------

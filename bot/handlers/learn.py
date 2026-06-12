@@ -7,20 +7,20 @@ from telegram.ext import ContextTypes
 import logging
 
 from bot.formatting import escape, passage_block, question_header, result_text
-from bot.keyboards import mc_keyboard, next_question_keyboard
+from bot.keyboards import fill_question_keyboard, mc_keyboard, next_question_keyboard
 from core.engine import LearningEngine
 from core.models import Question
 
 logger = logging.getLogger(__name__)
 
 LEARN_Q_KEY = "learn_question"
-THEME_IDS_KEY = "theme_practice_ids"
+TOPIC_IDS_KEY = "topic_practice_ids"
 
 
 async def learn_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     engine: LearningEngine = ctx.bot_data["engine"]
     user_id = update.effective_user.id
-    ctx.user_data.pop(THEME_IDS_KEY, None)  # exit theme mode on /learn
+    ctx.user_data.pop(TOPIC_IDS_KEY, None)  # exit topic mode on /learn
     q = engine.get_learn_question(user_id)
     ctx.user_data[LEARN_Q_KEY] = q.id
     await _send_question(update.effective_message, q, engine)
@@ -32,16 +32,16 @@ async def learn_next_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
     engine: LearningEngine = ctx.bot_data["engine"]
     user_id = update.effective_user.id
 
-    theme_ids = ctx.user_data.get(THEME_IDS_KEY)
-    if theme_ids:
-        q = engine.get_theme_learn_question(user_id, theme_ids)
+    topic_ids = ctx.user_data.get(TOPIC_IDS_KEY)
+    if topic_ids:
+        q = engine.get_topic_learn_question(user_id, topic_ids)
         if q:
             ctx.user_data[LEARN_Q_KEY] = q.id
-            await _send_question(query.message, q, engine, mode_prefix="📚 <b>Theme Practice</b>\n\n")
+            await _send_question(query.message, q, engine, mode_prefix="📚 <b>Topic Practice</b>\n\n")
             return
-        # Theme pool exhausted — fall through to normal learn
-        ctx.user_data.pop(THEME_IDS_KEY, None)
-        await query.message.reply_text("✅ All theme exercises done! Continuing with general practice.")
+        # Topic pool exhausted — fall through to normal learn
+        ctx.user_data.pop(TOPIC_IDS_KEY, None)
+        await query.message.reply_text("✅ All topic exercises done! Continuing with general practice.")
 
     q = engine.get_learn_question(user_id)
     ctx.user_data[LEARN_Q_KEY] = q.id
@@ -67,7 +67,7 @@ async def learn_mc_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
     await query.edit_message_text(
         result_text(result.correct, result.correct_answer, result.explanation),
         parse_mode="HTML",
-        reply_markup=next_question_keyboard("learn_next"),
+        reply_markup=next_question_keyboard("learn_next", question_id=question_id),
     )
 
 
@@ -89,7 +89,7 @@ async def learn_fill_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.reply_text(
         result_text(result.correct, result.correct_answer, result.explanation),
         parse_mode="HTML",
-        reply_markup=next_question_keyboard("learn_next"),
+        reply_markup=next_question_keyboard("learn_next", question_id=question_id),
     )
 
 
@@ -111,10 +111,11 @@ async def _send_question(
         await message.reply_text(
             header + hint + "\n\n✏️ Type your answer:",
             parse_mode="HTML",
+            reply_markup=fill_question_keyboard(q.id),
         )
     else:
         await message.reply_text(
             header,
             parse_mode="HTML",
-            reply_markup=mc_keyboard(q, prefix="learn"),
+            reply_markup=mc_keyboard(q, prefix="learn", question_id=q.id),
         )

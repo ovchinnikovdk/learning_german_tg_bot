@@ -334,6 +334,7 @@ class LearningEngine:
             ollama_model=settings.ollama_model,
             anthropic_api_key=settings.anthropic_api_key,
             anthropic_model=settings.anthropic_model,
+            prompt_type="candidates",
         )
 
         # Collect all existing question texts (pending + rejected) to deduplicate
@@ -405,6 +406,7 @@ class LearningEngine:
             anthropic_api_key=settings.anthropic_api_key,
             anthropic_model=settings.anthropic_model,
             max_tokens=1024,
+            prompt_type="learning_plan",
         )
 
         existing = self.storage.get_learning_plan(user_id) or {}
@@ -414,77 +416,78 @@ class LearningEngine:
             "weak_areas": plan_data.get("weak_areas", []),
             "strengths": plan_data.get("strengths", []),
             "generated_at": datetime.now().isoformat(),
-            "themes_history": existing.get("themes_history", []),
-            "current_theme": existing.get("current_theme"),
+            "topics_history": existing.get("topics_history", []),
+            "current_topic": existing.get("current_topic"),
         }
         self.storage.save_learning_plan(user_id, plan)
         return plan
 
-    async def generate_current_theme(self, user_id: int) -> dict:
-        from core.llm import build_new_theme_prompt, generate_json_object
+    async def generate_current_topic(self, user_id: int) -> dict:
+        from core.llm import build_new_topic_prompt, generate_json_object
         from config import settings
 
         stats = self.get_stats(user_id)
         pct = round(100 * stats.total_correct / stats.total_answered) if stats.total_answered else 0
         existing = self.storage.get_learning_plan(user_id) or {}
         ai_summary = existing.get("ai_summary", "")
-        completed_themes = [t["name"] for t in existing.get("themes_history", [])]
+        completed_topics = [t["name"] for t in existing.get("topics_history", [])]
 
-        # 1. Generate theme structure
-        theme_prompt = build_new_theme_prompt(
+        # 1. Generate topic structure
+        topic_prompt = build_new_topic_prompt(
             ai_summary=ai_summary,
-            completed_themes=completed_themes,
+            completed_topics=completed_topics,
             stats_pct=pct,
             total_answered=stats.total_answered,
             available_cats=self.bank.categories(),
         )
-        theme_data, _ = await generate_json_object(
-            theme_prompt,
+        topic_data, _ = await generate_json_object(
+            topic_prompt,
             ollama_url=settings.ollama_url,
             ollama_model=settings.ollama_model,
             anthropic_api_key=settings.anthropic_api_key,
             anthropic_model=settings.anthropic_model,
             max_tokens=1024,
+            prompt_type="new_topic",
         )
 
-        theme = {
-            "id": f"theme_{uuid.uuid4().hex[:8]}",
-            "name": theme_data.get("name", "New Theme"),
-            "description": theme_data.get("description", ""),
-            "grammar_rules": theme_data.get("grammar_rules", []),
-            "examples": theme_data.get("examples", []),
-            "focus_categories": theme_data.get("focus_categories", []),
+        topic = {
+            "id": f"topic_{uuid.uuid4().hex[:8]}",
+            "name": topic_data.get("name", "New Topic"),
+            "description": topic_data.get("description", ""),
+            "grammar_rules": topic_data.get("grammar_rules", []),
+            "examples": topic_data.get("examples", []),
+            "focus_categories": topic_data.get("focus_categories", []),
             "started_at": datetime.now().isoformat(),
             "completed_at": "",
             "question_ids": [],
         }
 
-        # Save theme structure immediately — exercises come after, failure is non-fatal
-        self.storage.update_learning_plan(user_id, current_theme=theme)
+        # Save topic structure immediately — exercises come after, failure is non-fatal
+        self.storage.update_learning_plan(user_id, current_topic=topic)
 
         # 2. Generate 20 exercises and add directly to bank
         try:
-            question_ids = await self._generate_and_add_theme_questions(
-                user_id, theme, stats, pct, count=20
+            question_ids = await self._generate_and_add_topic_questions(
+                user_id, topic, stats, pct, count=20
             )
             if question_ids:
-                theme["question_ids"] = question_ids
-                self.storage.update_learning_plan(user_id, current_theme=theme)
+                topic["question_ids"] = question_ids
+                self.storage.update_learning_plan(user_id, current_topic=topic)
         except Exception as exc:
             import logging as _log
-            _log.getLogger(__name__).warning("Exercise generation failed for theme: %s", exc)
+            _log.getLogger(__name__).warning("Exercise generation failed for topic: %s", exc)
 
-        return theme
+        return topic
 
-    async def _generate_and_add_theme_questions(
+    async def _generate_and_add_topic_questions(
         self,
         user_id: int,
-        theme: dict,
+        topic: dict,
         stats,
         stats_pct: int,
         count: int = 20,
     ) -> list[str]:
-        """Generate exercises for a theme and add them directly to the bank. Returns new question IDs."""
+        """Generate exercises for a topic and add them directly to the bank. Returns new question IDs."""
         from core.llm import build_lesson_questions_prompt, generate_questions
         from config import settings
 
@@ -504,7 +507,7 @@ class LearningEngine:
         ]
 
         prompt = build_lesson_questions_prompt(
-            theme=theme,
+            topic=topic,
             stats_pct=stats_pct,
             total_answered=stats.total_answered,
             recent_mistakes=mistakes,
@@ -518,6 +521,7 @@ class LearningEngine:
             anthropic_api_key=settings.anthropic_api_key,
             anthropic_model=settings.anthropic_model,
             max_tokens=4096,
+            prompt_type="topic_questions",
         )
 
         added_ids: list[str] = []
@@ -540,29 +544,29 @@ class LearningEngine:
             added_ids.append(q.id)
         return added_ids
 
-    async def ensure_theme_has_exercises(self, user_id: int) -> int:
-        """Generate exercises for current theme if it has none. Returns count added."""
+    async def ensure_topic_has_exercises(self, user_id: int) -> int:
+        """Generate exercises for current topic if it has none. Returns count added."""
         plan = self.storage.get_learning_plan(user_id)
-        if not plan or not plan.get("current_theme"):
+        if not plan or not plan.get("current_topic"):
             return 0
-        current_theme = plan["current_theme"]
-        if current_theme.get("question_ids"):
+        current_topic = plan["current_topic"]
+        if current_topic.get("question_ids"):
             return 0  # already has exercises
         stats = self.get_stats(user_id)
         pct = round(100 * stats.total_correct / stats.total_answered) if stats.total_answered else 0
-        question_ids = await self._generate_and_add_theme_questions(
-            user_id, current_theme, stats, pct, count=20
+        question_ids = await self._generate_and_add_topic_questions(
+            user_id, current_topic, stats, pct, count=20
         )
         if question_ids:
             self.storage.update_learning_plan(
                 user_id,
-                current_theme={**current_theme, "question_ids": question_ids},
+                current_topic={**current_topic, "question_ids": question_ids},
             )
         return len(question_ids)
 
-    def get_theme_progress(self, user_id: int, theme: dict) -> dict:
-        """Count theme exercises the user has attempted and answered correctly (at least once)."""
-        question_ids = set(theme.get("question_ids", []))
+    def get_topic_progress(self, user_id: int, topic: dict) -> dict:
+        """Count topic exercises the user has attempted and answered correctly (at least once)."""
+        question_ids = set(topic.get("question_ids", []))
         if not question_ids:
             return {"total": 0, "attempted": 0, "correct": 0}
         attempted: set[str] = set()
@@ -575,39 +579,58 @@ class LearningEngine:
                     correct.add(qid)
         return {"total": len(question_ids), "attempted": len(attempted), "correct": len(correct)}
 
-    def get_theme_learn_question(self, user_id: int, theme_ids: list[str]) -> Question | None:
-        """Pick the next question from the theme's exercise set."""
+    def get_topic_learn_question(self, user_id: int, topic_ids: list[str]) -> Question | None:
+        """Pick the next question from the topic's exercise set."""
         wrong = self.storage.get_wrong_question_ids(user_id)
         answered = self.storage.get_answered_question_ids(user_id)
         last = self._last_question_id.get(user_id)
-        q = self.bank.pick_from_ids(theme_ids, wrong, answered, exclude_id=last)
+        q = self.bank.pick_from_ids(topic_ids, wrong, answered, exclude_id=last)
         if q:
             self._last_question_id[user_id] = q.id
         return q
 
     async def generate_daily_decision(self, user_id: int) -> dict:
-        """Ask LLM to decide: 10 more exercises OR advance to next theme. Acts on the decision."""
+        """Ask LLM to decide: 10 more exercises OR advance to next topic. Acts on the decision."""
         from core.llm import build_daily_routine_decision_prompt, generate_json_object
         from config import settings
 
         plan = self.storage.get_learning_plan(user_id)
-        if not plan or not plan.get("current_theme"):
-            return {"decision": "no_theme"}
+        if not plan or not plan.get("current_topic"):
+            return {"decision": "no_topic"}
 
-        current_theme = plan["current_theme"]
-        theme_progress = self.get_theme_progress(user_id, current_theme)
-        theme_qids = set(current_theme.get("question_ids", []))
+        current_topic = plan["current_topic"]
+        topic_progress = self.get_topic_progress(user_id, current_topic)
+        topic_qids = set(current_topic.get("question_ids", []))
         all_answers = self.storage.get_user_answers(user_id)
-        theme_answers = [r for r in all_answers if r["question_id"] in theme_qids]
+        raw_topic_answers = [r for r in all_answers if r["question_id"] in topic_qids]
+
+        enriched_answers = []
+        for r in raw_topic_answers[-20:]:
+            q = self.bank.get(r["question_id"])
+            if q is None:
+                continue
+            if q.type in ("mc", "reading") and q.opts:
+                try:
+                    user_ans_text = q.opts[int(r["user_answer"])]
+                except (ValueError, IndexError):
+                    user_ans_text = r["user_answer"]
+            else:
+                user_ans_text = r["user_answer"]
+            enriched_answers.append({
+                "q": q.q,
+                "user_answer": user_ans_text,
+                "correct_answer": q.correct_answer_text(),
+                "correct": r["correct"],
+            })
 
         stats = self.get_stats(user_id)
         pct = round(100 * stats.total_correct / stats.total_answered) if stats.total_answered else 0
 
         prompt = build_daily_routine_decision_prompt(
             learning_plan=plan,
-            current_theme=current_theme,
-            theme_progress=theme_progress,
-            theme_answers=theme_answers[-20:],
+            current_topic=current_topic,
+            topic_progress=topic_progress,
+            topic_answers=enriched_answers,
             stats_pct=pct,
         )
         decision_data, _ = await generate_json_object(
@@ -617,36 +640,37 @@ class LearningEngine:
             anthropic_api_key=settings.anthropic_api_key,
             anthropic_model=settings.anthropic_model,
             max_tokens=256,
+            prompt_type="daily_decision",
         )
 
         decision = decision_data.get("decision", "continue")
         reason = decision_data.get("reason", "")
 
-        if decision == "next_theme":
-            self.complete_current_theme(user_id)
-            theme = await self.generate_current_theme(user_id)
-            return {"decision": "next_theme", "reason": reason, "theme": theme}
+        if decision == "next_topic":
+            self.complete_current_topic(user_id)
+            topic = await self.generate_current_topic(user_id)
+            return {"decision": "next_topic", "reason": reason, "topic": topic}
         else:
-            new_ids = await self._generate_and_add_theme_questions(
-                user_id, current_theme, stats, pct, count=10
+            new_ids = await self._generate_and_add_topic_questions(
+                user_id, current_topic, stats, pct, count=10
             )
             if new_ids:
-                updated_ids = list(current_theme.get("question_ids", [])) + new_ids
-                updated_theme = {**current_theme, "question_ids": updated_ids}
-                self.storage.update_learning_plan(user_id, current_theme=updated_theme)
+                updated_ids = list(current_topic.get("question_ids", [])) + new_ids
+                updated_topic = {**current_topic, "question_ids": updated_ids}
+                self.storage.update_learning_plan(user_id, current_topic=updated_topic)
             return {"decision": "continue", "reason": reason, "new_question_count": len(new_ids)}
 
-    def complete_current_theme(self, user_id: int) -> None:
+    def complete_current_topic(self, user_id: int) -> None:
         plan = self.storage.get_learning_plan(user_id)
-        if not plan or not plan.get("current_theme"):
+        if not plan or not plan.get("current_topic"):
             return
-        theme = dict(plan["current_theme"])
-        theme["completed_at"] = datetime.now().isoformat()
-        history = list(plan.get("themes_history", [])) + [theme]
-        self.storage.update_learning_plan(user_id, themes_history=history, current_theme=None)
+        topic = dict(plan["current_topic"])
+        topic["completed_at"] = datetime.now().isoformat()
+        history = list(plan.get("topics_history", [])) + [topic]
+        self.storage.update_learning_plan(user_id, topics_history=history, current_topic=None)
 
-    async def generate_lesson_candidates(self, user_id: int, theme: dict) -> list[QuestionCandidate]:
-        """Generate 20 lesson questions as candidates for the active theme."""
+    async def generate_lesson_candidates(self, user_id: int, topic: dict) -> list[QuestionCandidate]:
+        """Generate 20 lesson questions as candidates for the active topic."""
         from core.llm import build_lesson_questions_prompt, generate_questions
         from config import settings
 
@@ -670,7 +694,7 @@ class LearningEngine:
                 mistakes.append({"q": q.q, "cat": q.cat, "difficulty": q.difficulty})
 
         prompt = build_lesson_questions_prompt(
-            theme=theme,
+            topic=topic,
             stats_pct=pct,
             total_answered=stats.total_answered,
             recent_mistakes=mistakes,
@@ -684,6 +708,7 @@ class LearningEngine:
             anthropic_api_key=settings.anthropic_api_key,
             anthropic_model=settings.anthropic_model,
             max_tokens=4096,
+            prompt_type="candidate_questions",
         )
 
         existing_texts = {

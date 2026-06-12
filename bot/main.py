@@ -101,19 +101,19 @@ async def daily_routine_job(ctx: ContextTypes.DEFAULT_TYPE) -> None:
     for user in users:
         try:
             result = await engine.generate_daily_decision(user.user_id)
-            decision = result.get("decision", "no_theme")
+            decision = result.get("decision", "no_topic")
             reason = result.get("reason", "")
 
-            if decision == "next_theme":
-                theme_name = result.get("theme", {}).get("name", "?")
+            if decision == "next_topic":
+                topic_name = result.get("topic", {}).get("name", "?")
                 logger.info(
-                    "Daily: user %s → next theme '%s' — %s",
-                    user.user_id, theme_name, reason,
+                    "Daily: user %s → next topic '%s' — %s",
+                    user.user_id, topic_name, reason,
                 )
                 notify = (
-                    f"🎓 <b>New Theme!</b>\n\n"
+                    f"🎓 <b>New Topic!</b>\n\n"
                     f"Great progress — you're ready for a new topic:\n"
-                    f"<b>{theme_name}</b>\n\n"
+                    f"<b>{topic_name}</b>\n\n"
                     f"<i>{reason}</i>\n\n"
                     f"20 new exercises added. Tap /plan to start practicing."
                 )
@@ -122,26 +122,26 @@ async def daily_routine_job(ctx: ContextTypes.DEFAULT_TYPE) -> None:
             elif decision == "continue":
                 n = result.get("new_question_count", 0)
                 plan = engine.get_learning_plan(user.user_id) or {}
-                theme_name = plan.get("current_theme", {}).get("name", "")
+                topic_name = plan.get("current_topic", {}).get("name", "")
                 logger.info(
                     "Daily: user %s → %d exercise(s) added to '%s' — %s",
-                    user.user_id, n, theme_name, reason,
+                    user.user_id, n, topic_name, reason,
                 )
                 if n:
                     notify = (
-                        f"📝 <b>Theme Update</b>\n\n"
-                        f"{n} new exercise(s) added for: <b>{theme_name}</b>\n\n"
+                        f"📝 <b>Topic Update</b>\n\n"
+                        f"{n} new exercise(s) added for: <b>{topic_name}</b>\n\n"
                         f"<i>{reason}</i>\n\n"
                         f"Tap /plan → Practice Exercises to continue."
                     )
                     await ctx.bot.send_message(user.chat_id, notify, parse_mode="HTML")
 
             else:
-                # No active theme: fall back to 5 generic candidates (first user only)
+                # No active topic: fall back to 5 generic candidates (first user only)
                 if user.user_id == users[0].user_id:
                     candidates = await engine.generate_candidates(user.user_id)
                     logger.info(
-                        "Daily AI (no theme): %d candidate(s) for user %s",
+                        "Daily AI (no topic): %d candidate(s) for user %s",
                         len(candidates), user.user_id,
                     )
 

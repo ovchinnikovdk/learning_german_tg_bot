@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 
@@ -21,13 +22,19 @@ class Question:
             return self.opts[int(self.answer)]
         return str(self.answer)
 
+    @staticmethod
+    def _normalize_fill(text: str) -> str:
+        text = text.lower()
+        text = re.sub(r"[^\w\sÄäÖöÜüß]", " ", text)
+        return " ".join(text.split())
+
     def check_answer(self, user_answer: str) -> bool:
         if self.type in ("mc", "reading"):
             try:
                 return int(user_answer) == int(self.answer)
             except ValueError:
                 return user_answer.strip().lower() == self.opts[int(self.answer)].strip().lower()
-        return user_answer.strip().lower() == str(self.answer).strip().lower()
+        return self._normalize_fill(user_answer) == self._normalize_fill(str(self.answer))
 
 
 @dataclass
@@ -66,7 +73,7 @@ class QuestionCandidate:
 
 
 @dataclass
-class Theme:
+class Topic:
     id: str
     name: str
     description: str
@@ -89,7 +96,7 @@ class Theme:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Theme":
+    def from_dict(cls, d: dict) -> "Topic":
         return cls(
             id=d.get("id", ""),
             name=d.get("name", ""),

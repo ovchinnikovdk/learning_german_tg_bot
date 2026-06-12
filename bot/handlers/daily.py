@@ -8,7 +8,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from bot.formatting import escape, passage_block, question_header, result_text
-from bot.keyboards import mc_keyboard, next_question_keyboard
+from bot.keyboards import fill_question_keyboard, mc_keyboard, next_question_keyboard
 from core.engine import LearningEngine
 from core.models import Question
 
@@ -29,7 +29,7 @@ async def daily_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             f"Come back tomorrow for a new one!\n\n"
             f"Today's: <i>{escape(q.q)}</i>",
             parse_mode="HTML",
-            reply_markup=next_question_keyboard("menu_learn"),
+            reply_markup=next_question_keyboard("menu_learn", question_id=q.id),
         )
         return
 
@@ -64,7 +64,7 @@ async def daily_answer_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) 
     await query.edit_message_text(
         result_text(result.correct, result.correct_answer, result.explanation),
         parse_mode="HTML",
-        reply_markup=next_question_keyboard("menu_learn"),
+        reply_markup=next_question_keyboard("menu_learn", question_id=question_id),
     )
 
 
@@ -80,12 +80,13 @@ async def _send_question(message, q: Question, engine: LearningEngine, prefix: s
         await message.reply_text(
             header + hint + "\n\n✏️ Type your answer:",
             parse_mode="HTML",
+            reply_markup=fill_question_keyboard(q.id),
         )
     else:
         await message.reply_text(
             header,
             parse_mode="HTML",
-            reply_markup=mc_keyboard(q, prefix="daily"),
+            reply_markup=mc_keyboard(q, prefix="daily", question_id=q.id),
         )
 
 
@@ -110,11 +111,12 @@ async def send_daily_push(bot, chat_id: int, user_id: int, engine: LearningEngin
             chat_id=chat_id,
             text=header + hint + "\n\n✏️ Type your answer:",
             parse_mode="HTML",
+            reply_markup=fill_question_keyboard(q.id),
         )
     else:
         await bot.send_message(
             chat_id=chat_id,
             text=header,
             parse_mode="HTML",
-            reply_markup=mc_keyboard(q, prefix="daily"),
+            reply_markup=mc_keyboard(q, prefix="daily", question_id=q.id),
         )

@@ -88,7 +88,7 @@ class BackupOut(BaseModel):
     questions_backup: str
 
 
-class ThemeOut(BaseModel):
+class TopicOut(BaseModel):
     id: str
     name: str
     description: str
@@ -106,5 +106,5 @@ class LearningPlanOut(BaseModel):
     weak_areas: list[str] = []
     strengths: list[str] = []
     generated_at: str = ""
-    themes_history: list[ThemeOut] = []
-    current_theme: ThemeOut | None = None
+    topics_history: list[TopicOut] = []
+    current_topic: TopicOut | None = None

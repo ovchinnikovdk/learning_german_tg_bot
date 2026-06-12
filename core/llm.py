@@ -9,10 +9,39 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import datetime
+from pathlib import Path
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+_prompt_log_path: Path | None = None
+
+
+def set_prompt_log_path(path: Path) -> None:
+    global _prompt_log_path
+    _prompt_log_path = path
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _log_prompt(prompt_type: str, prompt: str) -> None:
+    if _prompt_log_path is None:
+        return
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "type": prompt_type,
+        "prompt": prompt,
+    }
+    existing: list[dict] = []
+    if _prompt_log_path.exists():
+        try:
+            existing = json.loads(_prompt_log_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            existing = []
+    existing.append(entry)
+    _prompt_log_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+    logger.info("Prompt logged → %s (%s)", _prompt_log_path.name, prompt_type)
 
 _SYSTEM_ARRAY = (
     "You are a JSON API. You output ONLY valid JSON arrays. "
@@ -96,8 +125,10 @@ async def generate_questions(
     anthropic_model: str = "claude-haiku-4-5-20251001",
     timeout: float = 120.0,
     max_tokens: int = 2048,
+    prompt_type: str = "questions",
 ) -> tuple[list[dict], str]:
     """Generate a JSON array of question dicts. Returns (questions, source)."""
+    _log_prompt(prompt_type, prompt)
     if anthropic_api_key:
         logger.info("Using Anthropic  model=%s", anthropic_model)
         try:
@@ -119,8 +150,10 @@ async def generate_json_object(
     anthropic_model: str = "claude-haiku-4-5-20251001",
     timeout: float = 120.0,
     max_tokens: int = 1024,
+    prompt_type: str = "json_object",
 ) -> tuple[dict, str]:
     """Generate a single JSON object. Returns (parsed_dict, source)."""
+    _log_prompt(prompt_type, prompt)
     if anthropic_api_key:
         logger.info("Using Anthropic (object)  model=%s", anthropic_model)
         try:
@@ -337,39 +370,39 @@ Generate a learning plan JSON object:
 {{
   "summary": "2-3 sentence analysis: the student's current level, biggest gaps, and recommended focus going forward",
   "recommended_progression": [
-    "Theme 1: <name> — <one-line description>",
-    "Theme 2: ...",
-    "Theme 3: ...",
-    "Theme 4: ...",
-    "Theme 5: ..."
+    "Topic 1: <name> — <one-line description>",
+    "Topic 2: ...",
+    "Topic 3: ...",
+    "Topic 4: ...",
+    "Topic 5: ..."
   ],
   "weak_areas": ["area1", "area2"],
   "strengths": ["area1"]
 }}
 
-recommended_progression: 5-8 concrete, sequenced learning themes tailored to this student's gaps, ordered from most urgent to advanced.
+recommended_progression: 5-8 concrete, sequenced learning topics tailored to this student's gaps, ordered from most urgent to advanced.
 Output ONLY the JSON object."""
 
 
-def build_new_theme_prompt(
+def build_new_topic_prompt(
     ai_summary: str,
-    completed_themes: list[str],
+    completed_topics: list[str],
     stats_pct: int,
     total_answered: int,
     available_cats: list[str],
 ) -> str:
     completed_str = (
-        "\n".join(f"  - {t}" for t in completed_themes)
-        or "  (none — this is the first theme)"
+        "\n".join(f"  - {t}" for t in completed_topics)
+        or "  (none — this is the first topic)"
     )
     cats_str = ", ".join(available_cats)
 
-    return f"""You are an expert German language teacher creating the next learning theme for a student.
+    return f"""You are an expert German language teacher creating the next learning topic for a student.
 
 ## Student Analysis
-{ai_summary if ai_summary else "No formal plan yet — choose an appropriate starting theme based on the student's stats."}
+{ai_summary if ai_summary else "No formal plan yet — choose an appropriate starting topic based on the student's stats."}
 
-## Completed Themes (do NOT repeat these)
+## Completed Topics (do NOT repeat these)
 {completed_str}
 
 ## Current Stats
@@ -378,9 +411,9 @@ Overall accuracy: {stats_pct}%  |  Total questions answered: {total_answered}
 ## Available Question Categories
 {cats_str}
 
-Generate the NEXT most appropriate learning theme as a JSON object:
+Generate the NEXT most appropriate learning topic as a JSON object:
 {{
-  "name": "Concise theme name (e.g. 'Modal Verbs: können and müssen')",
+  "name": "Concise topic name (e.g. 'Modal Verbs: können and müssen')",
   "description": "Thorough explanation of the topic: what it is, when to use it, key rules. 3-5 sentences in English.",
   "grammar_rules": [
     "Rule 1: ...",
@@ -395,28 +428,34 @@ Generate the NEXT most appropriate learning theme as a JSON object:
   "focus_categories": ["category1", "category2"]
 }}
 
-Choose the theme that best addresses this student's gaps and follows naturally from what they've already studied.
+Choose the topic that best addresses this student's gaps and follows naturally from what they've already studied.
 Output ONLY the JSON object."""
 
 
 def build_daily_routine_decision_prompt(
     learning_plan: dict,
-    current_theme: dict,
-    theme_progress: dict,
-    theme_answers: list[dict],
+    current_topic: dict,
+    topic_progress: dict,
+    topic_answers: list[dict],
     stats_pct: int,
 ) -> str:
-    total = theme_progress.get("total", 0)
-    attempted = theme_progress.get("attempted", 0)
-    correct = theme_progress.get("correct", 0)
-    theme_accuracy = round(100 * correct / attempted) if attempted else 0
+    total = topic_progress.get("total", 0)
+    attempted = topic_progress.get("attempted", 0)
+    correct = topic_progress.get("correct", 0)
+    topic_accuracy = round(100 * correct / attempted) if attempted else 0
 
     recent_lines = ""
-    for r in theme_answers[-12:]:
+    for r in topic_answers[-20:]:
         status = "✓" if r["correct"] else "✗"
-        recent_lines += f"  {status}\n"
+        q_text = r.get("q", "")[:80]
+        user_ans = r.get("user_answer", "")
+        if r["correct"]:
+            recent_lines += f'  {status} Q: "{q_text}"\n     User\'s answer: "{user_ans}"\n'
+        else:
+            correct_ans = r.get("correct_answer", "")
+            recent_lines += f'  {status} Q: "{q_text}"\n     User\'s answer: "{user_ans}"  (correct: "{correct_ans}")\n'
 
-    completed = [t["name"] for t in learning_plan.get("themes_history", [])]
+    completed = [t["name"] for t in learning_plan.get("topics_history", [])]
     progression = learning_plan.get("recommended_progression", [])
 
     return f"""You are an AI tutor managing a German student's daily learning session.
@@ -427,25 +466,25 @@ def build_daily_routine_decision_prompt(
 ## Recommended Progression
 {chr(10).join(f"  {i+1}. {t}" for i, t in enumerate(progression[:6])) or "  N/A"}
 
-## Current Theme
-Name: {current_theme.get("name", "")}
-Started: {current_theme.get("started_at", "")[:10]}
+## Current Topic
+Name: {current_topic.get("name", "")}
+Started: {current_topic.get("started_at", "")[:10]}
 Total exercises generated: {total}
 
-## Theme Progress
-Attempted: {attempted}/{total}  |  Answered correctly: {correct}  |  Theme accuracy: {theme_accuracy}%
+## Topic Progress
+Attempted: {attempted}/{total}  |  Answered correctly: {correct}  |  Topic accuracy: {topic_accuracy}%
 Overall student accuracy: {stats_pct}%
 
-## Recent answers on this theme (✓ = correct, ✗ = wrong)
+## Recent answers on this topic
 {recent_lines or "  (no answers yet)"}
 
-## Completed Themes
-{", ".join(completed) or "(none — this is the first theme)"}
+## Completed Topics
+{", ".join(completed) or "(none — this is the first topic)"}
 
 DECISION: Based on this data, decide what to do next for this student.
 
-Move to the NEXT THEME if:
-  - The student has attempted ≥70% of exercises with ≥75% accuracy on this theme
+Move to the NEXT TOPIC if:
+  - The student has attempted ≥70% of exercises with ≥75% accuracy on this topic
   - OR the student is clearly ready to advance based on overall progress
 
 Continue with MORE EXERCISES if:
@@ -455,13 +494,13 @@ Continue with MORE EXERCISES if:
 
 Output ONLY this JSON object:
 {{
-  "decision": "continue" | "next_theme",
+  "decision": "continue" | "next_topic",
   "reason": "One sentence explaining your decision"
 }}"""
 
 
 def build_lesson_questions_prompt(
-    theme: dict,
+    topic: dict,
     stats_pct: int,
     total_answered: int,
     recent_mistakes: list[dict],
@@ -469,11 +508,11 @@ def build_lesson_questions_prompt(
     count: int = 20,
 ) -> str:
     rules_text = "\n".join(
-        f"  {i + 1}. {r}" for i, r in enumerate(theme.get("grammar_rules", []))
+        f"  {i + 1}. {r}" for i, r in enumerate(topic.get("grammar_rules", []))
     ) or "  (see description)"
     examples_text = "\n".join(
         f"  • {e.get('german', '')} → {e.get('english', '')}"
-        for e in theme.get("examples", [])[:5]
+        for e in topic.get("examples", [])[:5]
     ) or "  (see description)"
     mistakes_text = "".join(
         f"  - [{m.get('difficulty', '')}|{m.get('cat', '')}] {m.get('q', '')[:80]}\n"
@@ -488,15 +527,15 @@ def build_lesson_questions_prompt(
         target_diff = "A1–A2"
 
     cats_str = ", ".join(available_cats)
-    focus_cats = ", ".join(theme.get("focus_categories", available_cats[:3]))
+    focus_cats = ", ".join(topic.get("focus_categories", available_cats[:3]))
     mc_count = round(count * 0.6)
     fill_count = count - mc_count
 
-    return f"""You are creating German language exercises for a student studying a specific theme.
+    return f"""You are creating German language exercises for a student studying a specific topic.
 
-## Current Theme
-Name: {theme.get('name', 'German Grammar')}
-Description: {theme.get('description', '')}
+## Current Topic
+Name: {topic.get('name', 'German Grammar')}
+Description: {topic.get('description', '')}
 
 Grammar Rules:
 {rules_text}
@@ -511,7 +550,7 @@ Target difficulty: {target_diff}
 ## Recent Mistakes (prioritize these patterns)
 {mistakes_text}
 ## Your Task
-Generate {count} practice exercises that DIRECTLY test: {theme.get('name', 'the theme above')}.
+Generate {count} practice exercises that DIRECTLY test: {topic.get('name', 'the topic above')}.
 Focus categories: {focus_cats}
 
 Mix of types:

@@ -1,0 +1,22 @@
+services:
+  bot:
+    build: .
+    image: german-learning-bot
+    container_name: german-bot
+    command: python -m bot.main
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    network_mode: host
+    restart: on-failure
+
+  api:
+    build: .
+    image: german-learning-bot
+    container_name: german-api
+    command: python -m api.main
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    network_mode: host
+    restart: on-failure
