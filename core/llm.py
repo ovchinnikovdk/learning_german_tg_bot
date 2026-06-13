@@ -329,7 +329,7 @@ FORMAT RULES:
 - "cat" must be one of: {cats_str}
 - "difficulty": A1 (basic), A2 (elementary), B1 (intermediate), B2 (upper-intermediate)
 - "opts": exactly 4 strings
-- "answer": integer 0–3 (index of correct option)
+- "answer": integer 0–3 (index of correct option), there should be NO identical options
 - "explanation": 1–2 sentences in English
 
 Output ONLY the JSON array, nothing else."""

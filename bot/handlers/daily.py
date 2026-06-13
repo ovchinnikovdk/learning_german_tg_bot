@@ -2,18 +2,19 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.formatting import escape, passage_block, question_header, result_text
-from bot.keyboards import fill_question_keyboard, mc_keyboard, next_question_keyboard
+from bot.formatting import escape, result_text
+from bot.keyboards import next_question_keyboard
+from bot.handlers.learn import _send_question, render_question
 from core.engine import LearningEngine
-from core.models import Question
 
 logger = logging.getLogger(__name__)
 DAILY_Q_KEY = "daily_question"
+
+_DAILY_PREFIX = "📅 <b>Daily Question</b>\n\n"
 
 
 async def daily_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -35,7 +36,7 @@ async def daily_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     q = engine.assign_daily_question(user.id)
     ctx.user_data[DAILY_Q_KEY] = q.id
-    await _send_question(msg, q, engine, prefix="📅 <b>Daily Question</b>\n\n")
+    await _send_question(msg, q, engine, mode_prefix=_DAILY_PREFIX, callback_prefix="daily")
 
 
 async def daily_answer_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -45,7 +46,6 @@ async def daily_answer_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) 
     engine: LearningEngine = ctx.bot_data["engine"]
     user_id = update.effective_user.id
 
-    # Prefer user_data (command flow); fall back to DB (push flow)
     question_id = ctx.user_data.get(DAILY_Q_KEY)
     if not question_id:
         question_id = engine.get_daily_assigned_question_id(user_id)
@@ -68,55 +68,11 @@ async def daily_answer_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) 
     )
 
 
-async def _send_question(message, q: Question, engine: LearningEngine, prefix: str = "") -> None:
-    logger.info("Daily: sending question %s type=%s opts=%d", q.id, q.type, len(q.opts))
-    header = question_header(q, mode_prefix=prefix)
-
-    if q.type == "reading" and q.passage_id:
-        header = prefix + passage_block(engine.bank.get_passage(q.passage_id)) + question_header(q)
-
-    if q.type == "fill":
-        hint = f"\n💡 <i>{escape(q.hint)}</i>" if q.hint else ""
-        await message.reply_text(
-            header + hint + "\n\n✏️ Type your answer:",
-            parse_mode="HTML",
-            reply_markup=fill_question_keyboard(q.id),
-        )
-    else:
-        await message.reply_text(
-            header,
-            parse_mode="HTML",
-            reply_markup=mc_keyboard(q, prefix="daily", question_id=q.id),
-        )
-
-
 async def send_daily_push(bot, chat_id: int, user_id: int, engine: LearningEngine) -> None:
     """Called by the 9am job to proactively push the daily question."""
     if engine.has_answered_daily(user_id):
         return
     q = engine.assign_daily_question(user_id)
     logger.info("Daily push → user %s question %s type=%s", user_id, q.id, q.type)
-    header = question_header(q, mode_prefix="📅 <b>Daily Question</b>\n\n")
-
-    if q.type == "reading" and q.passage_id:
-        header = (
-            "📅 <b>Daily Question</b>\n\n"
-            + passage_block(engine.bank.get_passage(q.passage_id))
-            + question_header(q)
-        )
-
-    if q.type == "fill":
-        hint = f"\n💡 <i>{escape(q.hint)}</i>" if q.hint else ""
-        await bot.send_message(
-            chat_id=chat_id,
-            text=header + hint + "\n\n✏️ Type your answer:",
-            parse_mode="HTML",
-            reply_markup=fill_question_keyboard(q.id),
-        )
-    else:
-        await bot.send_message(
-            chat_id=chat_id,
-            text=header,
-            parse_mode="HTML",
-            reply_markup=mc_keyboard(q, prefix="daily", question_id=q.id),
-        )
+    text, markup = render_question(q, engine, mode_prefix=_DAILY_PREFIX, callback_prefix="daily")
+    await bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML", reply_markup=markup)

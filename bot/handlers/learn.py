@@ -1,7 +1,7 @@
 """Handler for /learn — adaptive question practice."""
 from __future__ import annotations
 
-from telegram import Update
+from telegram import InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 import logging
@@ -93,29 +93,29 @@ async def learn_fill_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
+def render_question(
+    q: Question,
+    engine: LearningEngine,
+    mode_prefix: str = "🎓 <b>Learn Mode</b>\n\n",
+    callback_prefix: str = "learn",
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Build (text, reply_markup) for any question type. Pure — no I/O."""
+    header = question_header(q, mode_prefix=mode_prefix)
+    if q.type == "reading" and q.passage_id:
+        header = mode_prefix + passage_block(engine.bank.get_passage(q.passage_id)) + question_header(q)
+    if q.type == "fill":
+        hint = f"\n💡 <i>{escape(q.hint)}</i>" if q.hint else ""
+        return header + hint + "\n\n✏️ Type your answer:", fill_question_keyboard(q.id)
+    return header, mc_keyboard(q, prefix=callback_prefix, question_id=q.id)
+
+
 async def _send_question(
     message,
     q: Question,
     engine: LearningEngine,
     mode_prefix: str = "🎓 <b>Learn Mode</b>\n\n",
+    callback_prefix: str = "learn",
 ) -> None:
     logger.info("Sending question %s type=%s opts=%d", q.id, q.type, len(q.opts))
-    header = question_header(q, mode_prefix=mode_prefix)
-
-    if q.type == "reading" and q.passage_id:
-        header = prefix + passage_block(engine.bank.get_passage(q.passage_id)) + \
-                 question_header(q)
-
-    if q.type == "fill":
-        hint = f"\n💡 <i>{escape(q.hint)}</i>" if q.hint else ""
-        await message.reply_text(
-            header + hint + "\n\n✏️ Type your answer:",
-            parse_mode="HTML",
-            reply_markup=fill_question_keyboard(q.id),
-        )
-    else:
-        await message.reply_text(
-            header,
-            parse_mode="HTML",
-            reply_markup=mc_keyboard(q, prefix="learn", question_id=q.id),
-        )
+    text, markup = render_question(q, engine, mode_prefix, callback_prefix)
+    await message.reply_text(text, parse_mode="HTML", reply_markup=markup)
